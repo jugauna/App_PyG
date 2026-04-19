@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, TypeAdapter
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -42,6 +42,7 @@ _LOCALHOST_ORIGIN_REGEX = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
 
 BACKEND_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BACKEND_DIR.parent
+STATIC_ROOT = (BACKEND_DIR / "static").resolve()
 DEFAULT_PARQUET = PROJECT_ROOT / "data" / "parquet" / "wells_master.parquet"
 DEFAULT_MAP_POINTS_LIMIT = 5_000
 MAX_MAP_POINTS_LIMIT = 500_000
@@ -416,4 +417,28 @@ def get_well(sigla: str) -> dict[str, Any]:
         ) from e
 
 
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+def _file_under_static(rest_of_path: str) -> Path | None:
+    """Ruta a archivo bajo `static/` o None si sale del directorio (path traversal)."""
+    if not rest_of_path or rest_of_path.strip() == "":
+        return STATIC_ROOT / "index.html"
+    candidate = (STATIC_ROOT / rest_of_path).resolve()
+    try:
+        candidate.relative_to(STATIC_ROOT)
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
+@app.get("/")
+async def serve_spa_root() -> FileResponse:
+    """Raíz: siempre la SPA (React Router en el cliente)."""
+    return FileResponse(STATIC_ROOT / "index.html")
+
+
+@app.get("/{rest_of_path:path}")
+async def serve_spa(rest_of_path: str) -> FileResponse:
+    """Archivos estáticos (p. ej. /assets/…) o `index.html` para refrescos / pestañas en rutas del client."""
+    physical = _file_under_static(rest_of_path)
+    if physical is not None:
+        return FileResponse(physical)
+    return FileResponse(STATIC_ROOT / "index.html")
