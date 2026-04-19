@@ -1,13 +1,10 @@
-# Contexto en raíz del repo para backend/ y frontend/Dockerfile
+# Build context en la raíz — excluir ruido y secretos locales
 .git
-.github
+**/.git
+**/node_modules
 **/.venv
 .venv
-**/node_modules
-frontend/dist
 **/__pycache__
 *.pyc
 *.pyo
-.pytest_cache
-.cursor
 Documentos

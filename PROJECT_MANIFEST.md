@@ -16,7 +16,7 @@ Documento de referencia para **congelar la arquitectura vigente** y alinear desa
 | Estilos | **Tailwind CSS 4** | Vía `@tailwindcss/vite`, `index.css` con `@import 'tailwindcss'`. |
 | Mapa | **Leaflet 1.9**, **react-leaflet 5**, **react-leaflet-cluster** | Marcadores agrupados, controles de capa y escala. |
 | Gráficos | **Recharts** | Dashboard de ficha de pozo (doble eje petróleo / gas). |
-| HTTP cliente | **Axios** | Base URL `VITE_API_BASE` o `http://localhost:8000`. |
+| HTTP cliente | **Axios** | Build Docker: `VITE_API_BASE=/api` y rutas `wells/...`. Dev: sin env → `http://localhost:8000` y rutas `/api/...`. |
 
 **No forman parte del producto:** Streamlit, SQLite legacy, carpeta `app/` eliminada.
 
@@ -117,13 +117,14 @@ Base típica: `http://localhost:8000`. Documentación interactiva: `/docs`.
 - Libera puertos **8000** y **5173**, instala `frontend/node_modules` si falta, lanza **backend** en ventana nueva vía `backend\start_api.bat`, espera API (`scripts/wait_api.ps1`), lanza **Vite** en **5173**, abre el navegador.
 - `backend/start_api.bat` **no** sustituye a `run_app.bat`; es **subordinado** para levantar Uvicorn con el Python del venv del backend.
 
-### 6.1 Docker y DigitalOcean App Platform
+### 6.1 Docker y DigitalOcean App Platform (monolito)
 
-- **`backend/Dockerfile`**: imagen `python:3.11-slim`, instala `backend/requirements.txt`, copia `backend/main.py` y **`data/parquet/wells_master.parquet`** bajo `/app/data/parquet/`, `WORKDIR /app/backend`, `ENV WELLS_PARQUET=/app/data/parquet/wells_master.parquet`, expone **8000**, comando **`uvicorn main:app --host 0.0.0.0 --port 8000`**.  
-  El contexto de build esperado es la **raíz del repo** (`docker build -f backend/Dockerfile .` o `source_dir: .` en `app.yaml`).
-- **`frontend/Dockerfile`**: multi-stage — **node:20-alpine** (`npm ci`, `npm run build` con `ARG VITE_API_BASE`) y **nginx:alpine** sirviendo `dist` con **`frontend/nginx.conf`** (`try_files` → SPA).
-- **`app.yaml`**: manifiesto DigitalOcean — servicios **backend** y **frontend** (Docker), rutas `/api` y `/`, dominio **upstream.remasa.com**, `VITE_API_BASE` en **BUILD_TIME** con `${backend.PUBLIC_URL}`, `CORS_ALLOW_ORIGINS` para el front en producción.
-- **`.dockerignore`**: acelera builds ignorando `node_modules`, `.venv`, `Documentos`, etc.; **no** excluye `data/parquet/*.parquet`.
+La aplicación se despliega como **un solo contenedor**: FastAPI en el puerto **8000** sirve la API bajo **`/api`** y la SPA de React compilada como estáticos en **`/`** (`StaticFiles(directory="static", html=True)` tras las rutas de la API).
+
+- **`Dockerfile`** (raíz): **Stage 1** — `node:20-alpine`, `WORKDIR /app/frontend`, `npm ci`, build con **`ENV VITE_API_BASE=/api`** (`npm run build`). **Stage 2** — `python:3.11-slim`, `WORKDIR /app/backend`, instala `backend/requirements.txt`, copia **`backend/`** a `/app/backend/`, copia **`data/`** a **`/app/data/`**, copia el **`dist`** del front a **`/app/backend/static`**, `EXPOSE 8000`, comando **`uvicorn main:app --host 0.0.0.0 --port 8000`**. Imagen por defecto: `WELLS_PARQUET=/app/data/parquet/wells_master.parquet`.
+- **`app.yaml`**: servicio único **`web-app`**, `source_dir: .`, `dockerfile_path: Dockerfile`, ruta `/`, dominio **upstream.remasa.com** (PRIMARY). En runtime, **`WELLS_PARQUET`** puede ser relativa al raíz del proyecto en contenedor (p. ej. `data/parquet/wells_master.parquet` → resuelve contra **`PROJECT_ROOT`** = `/app` en la imagen). **`CORS_ALLOW_ORIGINS`** en runtime para el dominio público.
+- **`frontend/nginx.conf`**: solo referencia para despliegues con Nginx aparte; el monolito no lo usa.
+- **`.dockerignore`** (raíz): excluye **`.git`**, **`node_modules`**, **`.venv`**, **`__pycache__`**, `*.pyc` / `*.pyo`, **`Documentos/`**; **no** excluye `data/parquet/*.parquet`.
 - **`.gitignore`**: ignora entornos y artefactos locales; **no** ignora Parquet en `data/parquet/` (comentario explícito en el archivo).
 
 **Producción CORS:** variable de entorno **`CORS_ALLOW_ORIGINS`** (lista separada por comas) en el backend; se mantiene **`allow_origin_regex`** para `localhost` / `127.0.0.1` en cualquier puerto (desarrollo con Vite).

@@ -25,13 +25,27 @@ export function formatWellsFetchError(err: unknown): string {
   return 'Error al cargar pozos'
 }
 
-/** Mismo host que Vite (localhost) evita bloqueos de Chrome entre localhost:5173 y 127.0.0.1:8000. */
-const baseURL = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
+/**
+ * Dev: API en 8000. Build Docker: `VITE_API_BASE=/api` → rutas relativas `wells/...` (sin duplicar /api).
+ * Producción sin env: mismo origen, rutas absolutas `/api/...`.
+ */
+const baseURL =
+  import.meta.env.VITE_API_BASE != null && import.meta.env.VITE_API_BASE !== ''
+    ? String(import.meta.env.VITE_API_BASE)
+    : import.meta.env.DEV
+      ? 'http://localhost:8000'
+      : ''
 
 const client = axios.create({
   baseURL,
   timeout: 120_000,
 })
+
+function apiPath(suffix: string): string {
+  const s = suffix.replace(/^\//, '')
+  if (baseURL === '/api') return s
+  return `/api/${s}`
+}
 
 export type WellFilters = {
   empresa: string[]
@@ -62,7 +76,7 @@ export type WellFilterOptionsResponse = {
 
 export async function fetchFilterOptions(): Promise<WellFilterOptionsResponse> {
   const { data } = await client.get<WellFilterOptionsResponse>(
-    '/api/wells/filter-options',
+    apiPath('wells/filter-options'),
   )
   return data
 }
@@ -75,7 +89,7 @@ export async function fetchMapWellsCount(
   filters: WellFilters,
 ): Promise<WellMapCountResponse> {
   const qs = buildSearchParams(filters)
-  const url = qs ? `/api/wells/count?${qs}` : '/api/wells/count'
+  const url = qs ? `${apiPath('wells/count')}?${qs}` : apiPath('wells/count')
   const { data } = await client.get<WellMapCountResponse>(url)
   return data
 }
@@ -85,14 +99,14 @@ export async function fetchMapWells(
   limit: number,
 ): Promise<WellMapPoint[]> {
   const qs = buildSearchParams(filters, limit)
-  const url = `/api/wells?${qs}`
+  const url = `${apiPath('wells')}?${qs}`
   const { data } = await client.get<WellMapPoint[]>(url)
   return data
 }
 
 export async function fetchWellDetail(sigla: string): Promise<Well> {
   const { data } = await client.get<Well>(
-    `/api/wells/${encodeURIComponent(sigla)}`,
+    apiPath(`wells/${encodeURIComponent(sigla)}`),
   )
   return data
 }
@@ -100,7 +114,7 @@ export async function fetchWellDetail(sigla: string): Promise<Well> {
 export async function fetchWellSearchSiglas(query: string): Promise<string[]> {
   const t = query.trim()
   if (!t) return []
-  const { data } = await client.get<string[]>('/api/wells/search', {
+  const { data } = await client.get<string[]>(apiPath('wells/search'), {
     params: { q: t },
     timeout: 30_000,
   })

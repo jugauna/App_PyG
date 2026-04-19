@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, TypeAdapter
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -47,8 +48,12 @@ MAX_MAP_POINTS_LIMIT = 500_000
 
 
 def _parquet_path() -> Path:
+    """Ruta al Parquet: env `WELLS_PARQUET` (absoluta o relativa al raíz del repo / `PROJECT_ROOT`)."""
     raw = os.getenv("WELLS_PARQUET", "").strip()
-    return Path(raw) if raw else DEFAULT_PARQUET
+    if not raw:
+        return DEFAULT_PARQUET
+    p = Path(raw)
+    return p if p.is_absolute() else (PROJECT_ROOT / p).resolve()
 
 
 def _sql_string_literal(s: str) -> str:
@@ -409,3 +414,6 @@ def get_well(sigla: str) -> dict[str, Any]:
             status_code=500,
             detail=f"Error consultando pozo: {e!s}",
         ) from e
+
+
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
