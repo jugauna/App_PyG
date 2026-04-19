@@ -1,0 +1,13 @@
+# Contexto en raíz del repo para backend/ y frontend/Dockerfile
+.git
+.github
+**/.venv
+.venv
+**/node_modules
+frontend/dist
+**/__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.cursor
+Documentos

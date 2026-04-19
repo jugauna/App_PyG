@@ -1,0 +1,20 @@
+# Entornos y dependencias locales
+.venv/
+backend/.venv/
+frontend/node_modules/
+frontend/dist/
+
+# Cachés / herramientas
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+*.log
+.DS_Store
+
+# Variables locales (no commitear secretos)
+.env
+.env.*.local
+
+# El maestro Parquet en data/parquet/ NO se ignora: es necesario para Docker / App Platform.
+# (No usar reglas tipo *.parquet ni /data/ aquí.)
