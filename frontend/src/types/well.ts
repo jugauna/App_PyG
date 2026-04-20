@@ -5,9 +5,11 @@ export type WellMapPoint = {
   longitud: number | null
 }
 
-/** Ficha / fila del Parquet (GET /api/wells/{sigla}). */
+/** Campos comunes de ficha / fila Parquet. */
 export type Well = {
   sigla: string | null
+  anio?: number | null
+  mes?: number | null
   idpozo?: string | null
   empresa: string | null
   provincia: string | null
@@ -25,3 +27,6 @@ export type Well = {
   fecha_inicio_perf?: string | null
   fecha_fin_perf?: string | null
 }
+
+/** GET /api/wells/{sigla} devuelve una fila por mes con producción declarada. */
+export type WellMonthlyRecord = Well

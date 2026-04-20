@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import duckdb
 from dotenv import load_dotenv
@@ -29,6 +29,19 @@ from starlette.requests import Request
 
 load_dotenv()
 
+
+def _configure_app_logging() -> None:
+    """Formato uniforme; nivel por defecto INFO. En desarrollo: LOG_LEVEL=DEBUG."""
+    raw = os.getenv("LOG_LEVEL", "INFO").strip().upper()
+    level = getattr(logging, raw, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+
+_configure_app_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -43,18 +56,36 @@ _LOCALHOST_ORIGIN_REGEX = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
 BACKEND_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BACKEND_DIR.parent
 STATIC_ROOT = (BACKEND_DIR / "static").resolve()
-DEFAULT_PARQUET = PROJECT_ROOT / "data" / "parquet" / "wells_master.parquet"
+DEFAULT_PARQUET_DIR = PROJECT_ROOT / "data" / "parquet"
+DEFAULT_WELL_YEAR = 2026
+ALLOWED_WELL_YEARS: frozenset[int] = frozenset({2025, 2026})
 DEFAULT_MAP_POINTS_LIMIT = 5_000
 MAX_MAP_POINTS_LIMIT = 500_000
 
 
-def _parquet_path() -> Path:
-    """Ruta al Parquet: env `WELLS_PARQUET` (absoluta o relativa al raíz del repo / `PROJECT_ROOT`)."""
+def _parquet_path_for_year(anio: int) -> Path:
+    """Parquet anual `wells_{anio}.parquet` bajo `data/parquet/`.
+
+    `WELLS_PARQUET` puede ser:
+    - Ruta a un archivo `.parquet` (modo legacy: mismo fichero para cualquier `anio`).
+    - Ruta a un directorio (p. ej. `data/parquet`): se usa `{dir}/wells_{anio}.parquet`.
+    Sin variable: `PROJECT_ROOT/data/parquet/wells_{anio}.parquet`.
+    """
     raw = os.getenv("WELLS_PARQUET", "").strip()
     if not raw:
-        return DEFAULT_PARQUET
+        return (DEFAULT_PARQUET_DIR / f"wells_{anio}.parquet").resolve()
     p = Path(raw)
-    return p if p.is_absolute() else (PROJECT_ROOT / p).resolve()
+    if not p.is_absolute():
+        p = (PROJECT_ROOT / p).resolve()
+    if p.is_file() and p.suffix.lower() == ".parquet":
+        return p
+    return (p / f"wells_{anio}.parquet").resolve()
+
+
+AnioQuery = Annotated[
+    int,
+    Query(ge=2025, le=2026, description="Año del dataset (Parquet particionado)"),
+]
 
 
 def _sql_string_literal(s: str) -> str:
@@ -80,15 +111,15 @@ def _close_shared_db() -> None:
             _db_parquet_key = None
 
 
-def _get_connection() -> duckdb.DuckDBPyConnection:
+def _get_connection(anio: int = DEFAULT_WELL_YEAR) -> duckdb.DuckDBPyConnection:
     global _db_con, _db_parquet_key
-    path = _parquet_path()
+    path = _parquet_path_for_year(anio)
     if not path.is_file():
         raise HTTPException(
             status_code=503,
             detail=f"Parquet no disponible: {path}. Ejecutá convert_to_parquet.py.",
         )
-    key = str(path.resolve())
+    key = f"{anio}:{path.resolve()}"
     with _db_lock:
         if _db_con is not None and _db_parquet_key == key:
             return _db_con
@@ -113,12 +144,26 @@ def _get_connection() -> duckdb.DuckDBPyConnection:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    logger.info("PyG API — arranque (lifespan)")
     try:
-        if _parquet_path().is_file():
-            _get_connection()
-    except HTTPException:
-        pass
+        default_path = _parquet_path_for_year(DEFAULT_WELL_YEAR)
+        if default_path.is_file():
+            _get_connection(DEFAULT_WELL_YEAR)
+            logger.info(
+                "DuckDB listo para año por defecto %s (%s)",
+                DEFAULT_WELL_YEAR,
+                default_path,
+            )
+        else:
+            logger.info(
+                "Parquet no presente para %s: %s — endpoints pueden responder 503 hasta el ETL",
+                DEFAULT_WELL_YEAR,
+                default_path,
+            )
+    except HTTPException as e:
+        logger.info("Calentamiento inicial omitido: %s", e.detail)
     yield
+    logger.info("PyG API — cierre: liberando conexión DuckDB compartida")
     _close_shared_db()
 
 
@@ -206,9 +251,18 @@ def _cell_json(v: Any) -> str | float | int | bool | None:
 
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
-    p = _parquet_path()
-    return {"status": "ok" if p.is_file() else "no_parquet", "parquet": str(p.resolve())}
+def health() -> dict[str, str | dict[str, str]]:
+    rows: dict[str, str] = {}
+    ok = True
+    for y in sorted(ALLOWED_WELL_YEARS):
+        p = _parquet_path_for_year(y)
+        rows[str(y)] = str(p.resolve()) if p.is_file() else f"(ausente) {p.resolve()}"
+        ok = ok and p.is_file()
+    return {
+        "status": "ok" if ok else "no_parquet",
+        "default_anio": str(DEFAULT_WELL_YEAR),
+        "parquet_por_anio": rows,
+    }
 
 
 def _clean_in_values(values: list[str] | None) -> list[str] | None:
@@ -218,15 +272,16 @@ def _clean_in_values(values: list[str] | None) -> list[str] | None:
     return clean or None
 
 
-def _wells_map_where_sql_params(
+def _wells_map_base_sql_params(
     empresa: list[str] | None,
     provincia: list[str] | None,
     cuenca: list[str] | None,
 ) -> tuple[str, list[object]]:
-    """Fragmento SQL `FROM wells WHERE ...` + params para filtros de mapa."""
+    """`FROM wells WHERE ...` sobre filas mensuales: coords válidas + filtros IN."""
     sql = """
         FROM wells
         WHERE sigla IS NOT NULL
+          AND trim(CAST(sigla AS VARCHAR)) != ''
           AND latitud IS NOT NULL
           AND longitud IS NOT NULL
     """
@@ -248,9 +303,9 @@ def _wells_map_where_sql_params(
 
 
 @app.get("/api/wells/filter-options", response_model=WellFilterOptions)
-def well_filter_options() -> WellFilterOptions:
+def well_filter_options(anio: AnioQuery = DEFAULT_WELL_YEAR) -> WellFilterOptions:
     """Valores distintos para multiselect del front (sin traer todos los pozos)."""
-    con = _get_connection()
+    con = _get_connection(anio)
     try:
         with _db_lock:
             emp = [
@@ -282,13 +337,17 @@ def wells_map_count(
     empresa: list[str] | None = Query(None),
     provincia: list[str] | None = Query(None),
     cuenca: list[str] | None = Query(None),
+    anio: AnioQuery = DEFAULT_WELL_YEAR,
 ) -> WellMapCount:
     """Cantidad de pozos con coordenadas que cumplen los filtros (para el slider del mapa)."""
-    con = _get_connection()
+    con = _get_connection(anio)
     try:
-        where_sql, params = _wells_map_where_sql_params(empresa, provincia, cuenca)
+        base_sql, params = _wells_map_base_sql_params(empresa, provincia, cuenca)
         with _db_lock:
-            row = con.execute(f"SELECT COUNT(*) {where_sql}", params).fetchone()
+            row = con.execute(
+                f"SELECT COUNT(*) FROM (SELECT sigla {base_sql} GROUP BY sigla) AS _w",
+                params,
+            ).fetchone()
         n = int(row[0]) if row and row[0] is not None else 0
         return WellMapCount(count=n)
     except HTTPException:
@@ -306,6 +365,7 @@ def list_wells(
     empresa: list[str] | None = Query(None, description="Filtrar por empresa (repetir param o un valor)"),
     provincia: list[str] | None = Query(None),
     cuenca: list[str] | None = Query(None),
+    anio: AnioQuery = DEFAULT_WELL_YEAR,
     limit: int = Query(
         DEFAULT_MAP_POINTS_LIMIT,
         ge=0,
@@ -314,15 +374,18 @@ def list_wells(
     ),
 ) -> list[WellMapPoint]:
     """Puntos para el mapa: sigla + lat + lon. Orden: producción combinada descendente."""
-    con = _get_connection()
+    con = _get_connection(anio)
     try:
         if limit == 0:
             return []
-        where_sql, params = _wells_map_where_sql_params(empresa, provincia, cuenca)
+        base_sql, params = _wells_map_base_sql_params(empresa, provincia, cuenca)
         sql = f"""
-            SELECT sigla, latitud, longitud
-            {where_sql}
-            ORDER BY (COALESCE(prod_pet, 0) + COALESCE(prod_gas, 0)) DESC
+            SELECT sigla,
+                   max(latitud) AS latitud,
+                   max(longitud) AS longitud
+            {base_sql}
+            GROUP BY sigla
+            ORDER BY SUM(COALESCE(prod_pet, 0)) + SUM(COALESCE(prod_gas, 0)) DESC
             LIMIT ?
         """
         qparams = [*params, limit]
@@ -344,22 +407,26 @@ def list_wells(
 @app.get("/api/wells/search", response_model=list[str])
 def search_wells(
     q: str = Query("", max_length=120, description="Fragmento de sigla (ILIKE, sin distinguir mayúsculas)"),
+    anio: AnioQuery = DEFAULT_WELL_YEAR,
 ) -> list[str]:
     """Hasta 10 siglas que contienen el texto buscado."""
     needle = q.strip()
     if not needle:
         return []
-    con = _get_connection()
+    con = _get_connection(anio)
     try:
         pattern = f"%{needle}%"
         with _db_lock:
             rows = con.execute(
                 """
                 SELECT sigla
-                FROM wells
-                WHERE sigla IS NOT NULL
-                  AND trim(CAST(sigla AS VARCHAR)) != ''
-                  AND sigla ILIKE ?
+                FROM (
+                    SELECT DISTINCT sigla
+                    FROM wells
+                    WHERE sigla IS NOT NULL
+                      AND trim(CAST(sigla AS VARCHAR)) != ''
+                      AND sigla ILIKE ?
+                ) AS _s
                 ORDER BY sigla
                 LIMIT 10
                 """,
@@ -384,20 +451,31 @@ def search_wells(
 
 
 @app.get("/api/wells/{sigla}")
-def get_well(sigla: str) -> dict[str, Any]:
-    """Ficha completa de un pozo (todas las columnas del Parquet)."""
-    con = _get_connection()
+def get_well(
+    sigla: str,
+    anio: AnioQuery = DEFAULT_WELL_YEAR,
+) -> list[dict[str, Any]]:
+    """Filas mensuales del pozo para el año (orden cronológico por `mes`)."""
+    logger.debug("Cargando detalle de %s para el año %s", sigla, anio)
+    con = _get_connection(anio)
     try:
         with _db_lock:
             rel = con.execute(
-                "SELECT * FROM wells WHERE sigla = ? LIMIT 1",
+                """
+                SELECT * FROM wells
+                WHERE sigla = ?
+                ORDER BY mes NULLS LAST
+                """,
                 [sigla],
             )
-            row = rel.fetchone()
-            if row is None:
+            rows = rel.fetchall()
+            if not rows:
                 raise HTTPException(status_code=404, detail="Pozo no encontrado")
             col_names = [d[0] for d in rel.description]
-        return {c: _cell_json(v) for c, v in zip(col_names, row, strict=True)}
+        return [
+            {c: _cell_json(v) for c, v in zip(col_names, row, strict=True)}
+            for row in rows
+        ]
     except HTTPException:
         raise
     except Exception as e:

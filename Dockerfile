@@ -27,7 +27,7 @@ COPY backend/ ./
 COPY data/ /app/data/
 COPY --from=frontend-build /app/frontend/dist ./static
 
-ENV WELLS_PARQUET=/app/data/parquet/wells_master.parquet
+ENV WELLS_PARQUET=/app/data/parquet
 
 EXPOSE 8000
 

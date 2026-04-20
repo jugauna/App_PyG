@@ -32,9 +32,10 @@ export type WellsMapProps = {
   onPointerLatLng?: (lat: number, lon: number) => void
 }
 
-function openWellDetailTab(sigla: string) {
+/** Abre ficha en nueva pestaña con el mismo año que el mapa (`WellsContext`). */
+function openWellDetailTab(sigla: string, anioContexto: number) {
   window.open(
-    `${window.location.origin}/pozo/${encodeURIComponent(sigla)}`,
+    `${window.location.origin}/pozo/${encodeURIComponent(sigla)}?anio=${anioContexto}`,
     '_blank',
     'noopener,noreferrer',
   )
@@ -71,7 +72,7 @@ function IgnLabelsOverlaySatellite({ paneName }: { paneName: string }) {
 export const WellsMap = memo(function WellsMap({
   onPointerLatLng,
 }: WellsMapProps) {
-  const { wells } = useWells()
+  const { wells, anio } = useWells()
 
   const points = useMemo(
     () =>
@@ -146,7 +147,7 @@ export const WellsMap = memo(function WellsMap({
             position={[w.latitud as number, w.longitud as number]}
             eventHandlers={{
               click: () => {
-                if (w.sigla) openWellDetailTab(w.sigla)
+                if (w.sigla) openWellDetailTab(w.sigla, anio)
               },
             }}
           >
@@ -158,7 +159,7 @@ export const WellsMap = memo(function WellsMap({
                   className="text-left text-xs font-medium text-sky-700 underline hover:text-sky-900"
                   onClick={(e) => {
                     e.stopPropagation()
-                    if (w.sigla) openWellDetailTab(w.sigla)
+                    if (w.sigla) openWellDetailTab(w.sigla, anio)
                   }}
                 >
                   Abrir ficha en nueva pestaña

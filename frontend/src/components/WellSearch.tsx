@@ -1,17 +1,20 @@
 import { Search } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { useWells } from '../context/WellsContext'
 import { fetchWellSearchSiglas, formatWellsFetchError } from '../services/wellsApi'
 
-function openWellDetailTab(sigla: string) {
+/** Misma sincronización de año que el mapa (`useWells().anio`). */
+function openWellDetailTab(sigla: string, anioContexto: number) {
   window.open(
-    `${window.location.origin}/pozo/${encodeURIComponent(sigla)}`,
+    `${window.location.origin}/pozo/${encodeURIComponent(sigla)}?anio=${anioContexto}`,
     '_blank',
     'noopener,noreferrer',
   )
 }
 
 export function WellSearch() {
+  const { anio } = useWells()
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
   const [suggestions, setSuggestions] = useState<string[]>([])
@@ -39,7 +42,7 @@ export function WellSearch() {
     setErr(null)
     ;(async () => {
       try {
-        const list = await fetchWellSearchSiglas(debounced)
+        const list = await fetchWellSearchSiglas(debounced, anio)
         if (!cancelled) {
           setSuggestions(list)
           setHighlight(0)
@@ -56,7 +59,7 @@ export function WellSearch() {
     return () => {
       cancelled = true
     }
-  }, [debounced])
+  }, [debounced, anio])
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -67,13 +70,13 @@ export function WellSearch() {
   }, [])
 
   const pick = useCallback((sigla: string) => {
-    openWellDetailTab(sigla)
+    openWellDetailTab(sigla, anio)
     setOpen(false)
     setQuery('')
     setDebounced('')
     setSuggestions([])
     inputRef.current?.blur()
-  }, [])
+  }, [anio])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (!open && suggestions.length === 0) return

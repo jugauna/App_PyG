@@ -12,6 +12,7 @@
 - **geojson / coordenadas**: Datos geográficos para mapeo (Point: Long, Lat).
 
 ## 3. Datos de Producción (Mensual/Diario)
+- **anio** / **mes**: Período calendario de la fila en el maestro Parquet (granularidad mensual por pozo).
 - **prod_pet**: Producción de petróleo (m3).
 - **prod_gas**: Producción de gas (miles de m3).
 - **prod_agua**: Producción de agua asociada.

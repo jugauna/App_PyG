@@ -21,7 +21,7 @@ Documento de **especificación técnica y funcional** de **PyG — Inteligencia 
 |------|------------|-------------------|
 | API | **FastAPI**, **Uvicorn** | `backend/main.py` |
 | Consultas | **DuckDB** (`:memory:`, vista `wells` sobre `read_parquet`) | Conexión compartida + `threading.Lock` en lecturas |
-| Datos | **Parquet** | `data/parquet/wells_master.parquet`; variable **`WELLS_PARQUET`** (absoluta o relativa a `PROJECT_ROOT` = padre de `backend/`) |
+| Datos | **Parquet** (por año) | `data/parquet/wells_2025.parquet`, `wells_2026.parquet`; **`WELLS_PARQUET`**: directorio con esos archivos, o un `.parquet` único (legacy) |
 | ETL | **pandas**, **pyarrow**, **openpyxl** | `backend/scripts/convert_to_parquet.py` |
 | Frontend | **React 19**, **Vite 8**, **TypeScript**, **react-router-dom** | `frontend/` |
 | Estilos | **Tailwind CSS 4** | `@tailwindcss/vite` |
@@ -36,37 +36,40 @@ Documento de **especificación técnica y funcional** de **PyG — Inteligencia 
 
 ### 3.1 Fuentes esperadas (ETL)
 
-El script toma la **primera fuente disponible** de cada par:
+| Ubicación | Contenido |
+|-----------|-----------|
+| `Documentos/2025/` | CSV de producción del año (trimestres u otros), `capitulo-iv-pozos.csv`, `listado-de-pozos-cargados-por-empresas-operadoras.csv` |
+| `Documentos/2026/` | CSV principal de producción 2026, CSV **no convencionales** (filas filtradas por **`anio`** 2025 o 2026), mismos metadatos Cap. IV y listado |
 
-| Rol | Archivos (orden de preferencia) |
-|-----|----------------------------------|
-| Capítulo IV (metadata + geo) | `Documentos/capitulo4-pozos.xlsx` o `Documentos/capitulo-iv-pozos.csv` |
-| Producción | `Documentos/Produccion-pozos-2026.xlsx` o `Documentos/produccion-de-pozos-de-gas-y-pet.csv` |
+La carpeta **`Documentos/`** no se versiona (privacidad / tamaño); el pipeline asume estos archivos presentes en disco local o entorno de build.
 
 ### 3.2 Reglas de transformación (resumen)
 
 - Normalización de nombres de columnas (minúsculas, espacios → `_`).
-- **Clave de merge:** **`sigla`** (trim).
-- **GeoJSON:** columna `geojson` como string JSON tipo **Point** → **`coordinates` [lon, lat]** → columnas **`latitud`**, **`longitud`**.
-- Renombres frecuentes: p. ej. `profundidad` → `profundidad_medida`, `operador` → `empresa`, `area` → `yacimiento`.
-- Merge **outer** entre capítulo IV y producción por `sigla`.
-- Salida: **`data/parquet/wells_master.parquet`** (reemplazo completo al regenerar).
+- **Producción:** unión de todos los CSV de producción bajo `Documentos/2025/` y `Documentos/2026/`; cada fila se asigna al dataset **`wells_{anio}.parquet`** según su columna **`anio`** (incl. no convencional multipráctica).
+- **Granularidad:** **una fila Parquet por `sigla` y `mes`** con los valores mensuales de `prod_pet`, `prod_gas`, `prod_agua`; si el mismo mes se repite en varios archivos, se **suma** producción para ese mes.
+- **Clave de merge:** **`sigla`** (trim). Merge **outer** con Cap. IV y con listado (coordenadas **`coordenadax` / `coordenaday`** priorizadas sobre **GeoJSON Point** del Cap. IV).
+- **Calidad:** `provincia`, `cuenca`, `empresa` → trim y mayúsculas; alias de provincia (p. ej. `NEUQUEN/NQN` → Neuquén, `S. CRUZ` → Santa Cruz, `CHUBUT/CHB` → Chubut).
+- Salida: **`data/parquet/wells_2025.parquet`** y **`data/parquet/wells_2026.parquet`**.
 
 ### 3.3 Campos canónicos relevantes (no exhaustivo)
 
-`sigla`, `idpozo`, `empresa`, `yacimiento`, `provincia`, `cuenca`, `latitud`, `longitud`, `prod_pet`, `prod_gas`, `prod_agua`, `tipo_de_recurso`, `profundidad_medida`, `fecha_inicio_perf`, `fecha_fin_perf`, `tipoestado`, `tipoextraccion`. Columnas adicionales del Parquet se exponen en **`GET /api/wells/{sigla}`** tal cual (valores normalizados a JSON seguro).
+`sigla`, `anio`, **`mes`**, `idpozo`, `empresa`, `yacimiento`, `provincia`, `cuenca`, `latitud`, `longitud`, `prod_pet`, `prod_gas`, `prod_agua`, `tipo_de_recurso`, `profundidad_medida`, `fecha_inicio_perf`, `fecha_fin_perf`, `tipoestado`, `tipoextraccion`. **`GET /api/wells/{sigla}`** devuelve un **arreglo** de filas (una por mes con dato), no un único objeto.
 
 ### 3.4 Reglas de negocio en API / mapa
 
-- **Mapa (`GET /api/wells`):** solo pozos con **`sigla`**, **`latitud`** y **`longitud`** no nulos en la consulta filtrada.
-- **Orden:** `ORDER BY (COALESCE(prod_pet,0) + COALESCE(prod_gas,0)) DESC` — índice de prioridad para **top-N** (unidades mixtas; uso operacional, no equivalencia física petróleo/gas).
+- **Dataset:** query **`anio`** en **2025** o **2026** (default **2026**). DuckDB lee **`wells_{anio}.parquet`**.
+- **Mapa (`GET /api/wells`):** filas mensuales con **`sigla`**, **`latitud`** y **`longitud`** no nulos; la API **agrupa por pozo** y ordena por **suma anual** `SUM(prod_pet)+SUM(prod_gas)` para el top-N.
+- **Detalle (`GET /api/wells/{sigla}`):** sin agregación: lista **mes a mes** ordenada por **`mes`**.
 - **Límites:** `limit` entre **0** y **500_000** (`MAX_MAP_POINTS_LIMIT`); por defecto **5_000** (`DEFAULT_MAP_POINTS_LIMIT`).
 - **Filtros:** query params repetibles `empresa`, `provincia`, `cuenca` (multiselect en front).
+- **Sincronización multianual completa:** el mapa y la búsqueda abren la ficha con **`?anio=`** igual al contexto global. La ficha lee **`anio`** con **`useSearchParams`** (default **2026** si falta), ofrece **selector 2025/2026** en cabecera que actualiza la URL con **`setSearchParams`**, y el **`useEffect`** de carga depende de **`sigla`** y **`anio`** de la URL para refrescar gráficos y metadatos. No hay estado de año “huérfano” entre mapa y ficha.
 
 ### 3.5 Ficha y gráfico
 
-- La ficha consume **`GET /api/wells/{sigla}`** (objeto completo).
-- El gráfico mensual en UI usa una **serie sintética 12 meses** con declinación mensual configurable (**`CHART_SYNTHETIC_DECLINE_FRAC`** en `wellDetailUtils.ts`, p. ej. 5 %); coherente con columnas `petroleo_mes_*` / `gas_mes_*` del **CSV exportado** (`downloadWellCsv`, BOM UTF-8).
+- La ficha consume **`GET /api/wells/{sigla}?anio=…`**, que devuelve un **array de filas mensuales** (una por mes con registro en el Parquet), ordenadas por **`mes`**.
+- El gráfico **Recharts** representa **solo los meses presentes** en esa respuesta (p. ej. si el año corta en marzo, el eje X termina en **Mar**); no se rellenan meses faltantes con ceros.
+- El **CSV exportado** (`downloadWellCsv`, BOM UTF-8) incluye metadatos representativos, totales anuales acumulados (`prod_*_anual_acumulado`) y columnas dinámicas **`petroleo_mes_<Mes>`** / **`gas_mes_<Mes>`** según la serie real.
 
 ---
 
@@ -76,12 +79,12 @@ Base local típica: **`http://127.0.0.1:8000`**. Documentación interactiva: **`
 
 | Método y ruta | Función |
 |---------------|---------|
-| `GET /api/health` | Estado del servicio y ruta efectiva del Parquet. |
-| `GET /api/wells/filter-options` | JSON: listas `empresas`, `provincias`, `cuencas` (distinct ordenados). |
-| `GET /api/wells/count` | Conteo de pozos con coordenadas bajo filtros. |
-| `GET /api/wells` | Lista `{ sigla, latitud, longitud }[]` con filtros + `limit`. |
-| `GET /api/wells/search?q=` | Hasta 10 `sigla` con **ILIKE**. |
-| `GET /api/wells/{sigla}` | Registro completo del pozo. |
+| `GET /api/health` | Estado del servicio y rutas de los Parquet por año. |
+| `GET /api/wells/filter-options` | Query **`anio`**. JSON: listas `empresas`, `provincias`, `cuencas` (distinct ordenados). |
+| `GET /api/wells/count` | Query **`anio`** + filtros. Conteo de pozos con coordenadas. |
+| `GET /api/wells` | Query **`anio`** + filtros + `limit`. Lista `{ sigla, latitud, longitud }[]`. |
+| `GET /api/wells/search?q=` | Query **`anio`**. Hasta 10 `sigla` con **ILIKE**. |
+| `GET /api/wells/{sigla}` | Query **`anio`**. **Array** de registros mensuales del pozo (orden por `mes`). |
 
 **Errores:** sin archivo Parquet válido → **503** con mensaje orientativo. Pozo inexistente → **404**.
 
@@ -99,13 +102,13 @@ Base local típica: **`http://127.0.0.1:8000`**. Documentación interactiva: **`
 | Ruta | Componente | Función |
 |------|------------|---------|
 | `/` | `MapPage` | Mapa + cabecera con coordenadas del puntero y textos de estado. |
-| `/pozo/:sigla` | `WellDetailPage` | Ficha, gráfico, mini mapa, CSV. |
+| `/pozo/:sigla` | `WellDetailPage` | Ficha, gráfico, mini mapa, CSV; **`?anio=`** en URL + selector de año en cabecera (sincronizado con mapa al abrir desde `WellsMap` / `WellSearch`). |
 | `*` | Redirección a `/` | SPA. |
 
 - **`Layout`:** cabecera, toggle sidebar, `Link` a `/`.
-- **`SidebarFilters`:** `WellSearch`, multiselects, slider “Máximo de pozos en el mapa”, limpiar filtros.
-- **`WellsContext`:** estado de filtros, opciones, pozos en mapa, límites elegibles, errores.
-- **Mapa:** clic en marcador → **`window.open(..., '_blank', 'noopener,noreferrer')`** hacia `/pozo/<sigla>` (misma lógica en búsqueda).
+- **`SidebarFilters`:** selector **Año de datos** (2025 / 2026), `WellSearch`, multiselects, slider “Máximo de pozos en el mapa”, limpiar filtros.
+- **`WellsContext`:** **`anio`**, filtros, opciones, pozos en mapa, límites elegibles, errores; efecto único que refetch al cambiar **`anio`**, filtros o límite.
+- **Mapa:** clic en marcador → **`window.open(..., '_blank', 'noopener,noreferrer')`** hacia **`/pozo/<sigla>?anio=<anio del contexto>`** (misma lógica en búsqueda rápida).
 
 ---
 
@@ -124,8 +127,8 @@ En **desarrollo** con solo Vite, la carpeta `backend/static` puede contener solo
 
 | Artefacto | Descripción |
 |-----------|-------------|
-| **`Dockerfile`** (raíz) | Multi-stage: build **Node 20 Alpine** en `/app/frontend` con `ENV VITE_API_BASE=/api`; runtime **Python 3.11 slim**, `WORKDIR /app/backend`, copia `backend/`, `data/` → `/app/data/`, `dist` → `backend/static`, `uvicorn main:app --host 0.0.0.0 --port 8000`. |
-| **`app.yaml`** | Servicio **`web-app`**, `source_dir: .`, `dockerfile_path: Dockerfile`, ruta `/`, dominio de ejemplo documentado en manifiesto, `WELLS_PARQUET` y `CORS_ALLOW_ORIGINS` en runtime. |
+| **`Dockerfile`** (raíz) | Multi-stage: build **Node 20 Alpine** en `/app/frontend` con `ENV VITE_API_BASE=/api`; runtime **Python 3.11 slim**, `WORKDIR /app/backend`, copia `backend/`, `data/` → `/app/data/`, `dist` → `backend/static`, `uvicorn main:app --host 0.0.0.0 --port 8000`. **`WELLS_PARQUET=/app/data/parquet`** (directorio). |
+| **`app.yaml`** | Servicio **`web-app`**, `source_dir: .`, `dockerfile_path: Dockerfile`, ruta `/`, dominio de ejemplo documentado en manifiesto, **`WELLS_PARQUET=data/parquet`**, `CORS_ALLOW_ORIGINS` en runtime. |
 | **`.dockerignore`** | Incluye `.git`, `node_modules`, `.venv`, `__pycache__`, artefactos `.pyc`, `Documentos/`; no excluye Parquet bajo `data/parquet/`. |
 
 ---
@@ -144,7 +147,7 @@ En **desarrollo** con solo Vite, la carpeta `backend/static` puede contener solo
 ## 9. Limitaciones conocidas
 
 - El **ranking petróleo + gas** mezcla unidades según dataset; sirve para priorización visual, no como medida física única.
-- Series del gráfico / CSV pueden ser **sintéticas** si el maestro no trae serie mensual real aún modelada en front.
+- **Series temporales:** el modelo de datos es **mensual por pozo** en Parquet (`mes`, `prod_pet`, `prod_gas`, `prod_agua`); el mapa y el ranking usan **sumas anuales** por pozo; la ficha y el gráfico usan la **serie mensual real** devuelta por la API.
 - Volúmenes muy grandes de puntos sin filtro pueden degradar la experiencia; usar filtros y el slider.
 
 ---

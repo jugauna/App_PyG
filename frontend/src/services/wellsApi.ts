@@ -1,6 +1,9 @@
 import axios from 'axios'
 
-import type { Well, WellMapPoint } from '../types/well'
+import type { WellMapPoint, WellMonthlyRecord } from '../types/well'
+
+/** Coincide con el default del backend (`DEFAULT_WELL_YEAR`). */
+export const DEFAULT_API_YEAR = 2026
 
 export function formatWellsFetchError(err: unknown): string {
   if (axios.isAxiosError(err)) {
@@ -53,8 +56,13 @@ export type WellFilters = {
   cuenca: string[]
 }
 
-function buildSearchParams(f: WellFilters, limit?: number): string {
+function buildSearchParams(
+  f: WellFilters,
+  limit?: number,
+  anio: number = DEFAULT_API_YEAR,
+): string {
   const sp = new URLSearchParams()
+  sp.set('anio', String(anio))
   for (const v of f.empresa) {
     if (v) sp.append('empresa', v)
   }
@@ -69,9 +77,12 @@ export type WellFilterOptionsResponse = {
   cuencas: string[]
 }
 
-export async function fetchFilterOptions(): Promise<WellFilterOptionsResponse> {
+export async function fetchFilterOptions(
+  anio: number = DEFAULT_API_YEAR,
+): Promise<WellFilterOptionsResponse> {
   const { data } = await client.get<WellFilterOptionsResponse>(
     apiPath('wells/filter-options'),
+    { params: { anio } },
   )
   return data
 }
@@ -82,9 +93,10 @@ export type WellMapCountResponse = {
 
 export async function fetchMapWellsCount(
   filters: WellFilters,
+  anio: number = DEFAULT_API_YEAR,
 ): Promise<WellMapCountResponse> {
-  const qs = buildSearchParams(filters)
-  const url = qs ? `${apiPath('wells/count')}?${qs}` : apiPath('wells/count')
+  const qs = buildSearchParams(filters, undefined, anio)
+  const url = `${apiPath('wells/count')}?${qs}`
   const { data } = await client.get<WellMapCountResponse>(url)
   return data
 }
@@ -92,27 +104,35 @@ export async function fetchMapWellsCount(
 export async function fetchMapWells(
   filters: WellFilters,
   limit: number,
+  anio: number = DEFAULT_API_YEAR,
 ): Promise<WellMapPoint[]> {
-  const qs = buildSearchParams(filters, limit)
+  const qs = buildSearchParams(filters, limit, anio)
   const url = `${apiPath('wells')}?${qs}`
   const { data } = await client.get<WellMapPoint[]>(url)
   return data
 }
 
-export async function fetchWellDetail(sigla: string): Promise<Well> {
-  const { data } = await client.get<Well>(
+/** GET `/api/wells/{sigla}?anio=` — el backend elige `wells_{anio}.parquet`. */
+export async function fetchWellDetail(
+  sigla: string,
+  anio: number = DEFAULT_API_YEAR,
+): Promise<WellMonthlyRecord[]> {
+  const { data } = await client.get<WellMonthlyRecord[]>(
     apiPath(`wells/${encodeURIComponent(sigla)}`),
+    { params: { anio } },
   )
-  return data
+  return Array.isArray(data) ? data : []
 }
 
-export async function fetchWellSearchSiglas(query: string): Promise<string[]> {
+export async function fetchWellSearchSiglas(
+  query: string,
+  anio: number = DEFAULT_API_YEAR,
+): Promise<string[]> {
   const t = query.trim()
   if (!t) return []
   const { data } = await client.get<string[]>(apiPath('wells/search'), {
-    params: { q: t },
+    params: { q: t, anio },
     timeout: 30_000,
   })
   return Array.isArray(data) ? data : []
 }
-

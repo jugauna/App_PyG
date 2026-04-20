@@ -16,7 +16,7 @@ services:
     envs:
       - key: WELLS_PARQUET
         scope: RUN_TIME
-        value: data/parquet/wells_master.parquet
+        value: data/parquet
       - key: CORS_ALLOW_ORIGINS
         scope: RUN_TIME
         value: https://upstream.remasa.com

@@ -1,5 +1,7 @@
 /** Utilidades para ficha de pozo (KPIs, export, estado). */
 
+import type { WellMonthlyRecord } from '../../types/well'
+
 export function toNum(v: unknown): number | null {
   if (v == null) return null
   if (typeof v === 'number' && !Number.isNaN(v)) return v
@@ -9,6 +11,22 @@ export function toNum(v: unknown): number | null {
   }
   return null
 }
+
+/** Etiquetas cortas para eje X (orden calendario 1–12). */
+export const MONTH_SHORT_ES = [
+  'Ene',
+  'Feb',
+  'Mar',
+  'Abr',
+  'May',
+  'Jun',
+  'Jul',
+  'Ago',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dic',
+] as const
 
 /** Corte de agua en líquido: agua / (petróleo + agua) × 100 */
 export function waterCutPct(
@@ -67,73 +85,83 @@ export type MonthlyProductionRow = {
   gas: number
 }
 
-/** Misma configuración en gráfico (WellProductionChart) y export CSV. */
-export const CHART_SYNTHETIC_MONTHS = 12
-export const CHART_SYNTHETIC_DECLINE_FRAC = 0.05
-
-/**
- * Reparte el volumen declarado en 12 meses con declinación geométrica mensual
- * (cada mes = (1 - decline) × el anterior). La suma mensual coincide con el total.
- */
-export function syntheticMonthlyProduction(
-  totalPet: number,
-  totalGas: number,
-  months = CHART_SYNTHETIC_MONTHS,
-  monthlyDeclineFrac = CHART_SYNTHETIC_DECLINE_FRAC,
-): MonthlyProductionRow[] {
-  const r = 1 - monthlyDeclineFrac
-  const denom = (1 - Math.pow(r, months)) / (1 - r)
-  const q0Pet =
-    totalPet > 0 && denom > 0 && Number.isFinite(denom) ? totalPet / denom : 0
-  const q0Gas =
-    totalGas > 0 && denom > 0 && Number.isFinite(denom) ? totalGas / denom : 0
-  return Array.from({ length: months }, (_, t) => ({
-    periodo: `Mes ${t + 1}`,
-    petroleo: q0Pet * Math.pow(r, t),
-    gas: q0Gas * Math.pow(r, t),
-  }))
+export function totalsFromWellRows(rows: WellMonthlyRecord[]): {
+  pet: number
+  gas: number
+  agua: number
+} {
+  let pet = 0
+  let gas = 0
+  let agua = 0
+  for (const r of rows) {
+    pet += toNum(r.prod_pet) ?? 0
+    gas += toNum(r.prod_gas) ?? 0
+    agua += toNum(r.prod_agua) ?? 0
+  }
+  return { pet, gas, agua }
 }
 
-function csvNumericCell(n: number): string {
-  if (!Number.isFinite(n)) return ''
-  return String(n)
+/** Serie mensual real ordenada por `mes` (solo meses presentes en el dataset). */
+export function chartDataFromWellRows(
+  rows: WellMonthlyRecord[],
+): MonthlyProductionRow[] {
+  const sorted = [...rows].sort(
+    (a, b) => (toNum(a.mes) ?? 0) - (toNum(b.mes) ?? 0),
+  )
+  const out: MonthlyProductionRow[] = []
+  for (const r of sorted) {
+    const m = toNum(r.mes)
+    if (m == null || m < 1 || m > 12) continue
+    out.push({
+      periodo: MONTH_SHORT_ES[m - 1],
+      petroleo: toNum(r.prod_pet) ?? 0,
+      gas: toNum(r.prod_gas) ?? 0,
+    })
+  }
+  return out
+}
+
+/** Fila representativa (último mes con dato) para metadatos de cabecera / tabla. */
+export function latestWellRow(
+  rows: WellMonthlyRecord[],
+): WellMonthlyRecord | null {
+  if (rows.length === 0) return null
+  const sorted = [...rows].sort(
+    (a, b) => (toNum(a.mes) ?? 0) - (toNum(b.mes) ?? 0),
+  )
+  return sorted[sorted.length - 1]
 }
 
 export function downloadWellCsv(
-  well: Record<string, unknown>,
+  rows: WellMonthlyRecord[],
   filenameSigla: string,
 ): void {
-  const entries = Object.entries(well).filter(([, v]) => v !== undefined)
+  if (rows.length === 0) return
+  const latest = latestWellRow(rows)
+  if (!latest) return
+
+  const chart = chartDataFromWellRows(rows)
+  const { pet, gas, agua } = totalsFromWellRows(rows)
+
+  const rep: Record<string, unknown> = { ...latest }
+  rep.prod_pet_anual_acumulado = pet
+  rep.prod_gas_anual_acumulado = gas
+  rep.prod_agua_anual_acumulado = agua
+
+  for (const m of chart) {
+    rep[`petroleo_mes_${m.periodo}`] = m.petroleo
+    rep[`gas_mes_${m.periodo}`] = m.gas
+  }
+
+  const entries = Object.entries(rep).filter(([, v]) => v !== undefined)
   const esc = (val: unknown) => {
     const str = val == null ? '' : String(val)
     if (/[",\n\r]/.test(str)) return `"${str.replace(/"/g, '""')}"`
     return str
   }
 
-  const totalPet = toNum(well.prod_pet) ?? 0
-  const totalGas = toNum(well.prod_gas) ?? 0
-  const monthly = syntheticMonthlyProduction(
-    totalPet,
-    totalGas,
-    CHART_SYNTHETIC_MONTHS,
-    CHART_SYNTHETIC_DECLINE_FRAC,
-  )
-
-  const monthCols: [string, string][] = []
-  for (let i = 0; i < monthly.length; i++) {
-    monthCols.push([`petroleo_mes_${i + 1}`, csvNumericCell(monthly[i].petroleo)])
-  }
-  for (let i = 0; i < monthly.length; i++) {
-    monthCols.push([`gas_mes_${i + 1}`, csvNumericCell(monthly[i].gas)])
-  }
-
-  const masterHeader = entries.map(([k]) => k)
-  const masterRow = entries.map(([, v]) => esc(v))
-  const extraHeader = monthCols.map(([k]) => k)
-  const extraRow = monthCols.map(([, v]) => esc(v))
-
-  const header = [...masterHeader, ...extraHeader].join(',')
-  const row = [...masterRow, ...extraRow].join(',')
+  const header = entries.map(([k]) => k).join(',')
+  const row = entries.map(([, v]) => esc(v)).join(',')
   const bom = '\uFEFF'
   const blob = new Blob([bom + header + '\n' + row], {
     type: 'text/csv;charset=utf-8',

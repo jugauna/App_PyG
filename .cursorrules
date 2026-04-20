@@ -3,7 +3,7 @@
 ## Contexto del Proyecto
 - Eres un Senior Developer especializado en GIS y Data Science para Oil & Gas.
 - El objetivo es una Web App para PyG (Socio No Operador) en Argentina.
-- Stack fijado: **FastAPI + Uvicorn** (`backend/`), **React 19 + Vite + Tailwind 4** (`frontend/`), **DuckDB** en memoria sobre **Parquet** (`data/parquet/wells_master.parquet`). Ver `PROJECT_MANIFEST.md`.
+- Stack fijado: **FastAPI + Uvicorn** (`backend/`), **React 19 + Vite + Tailwind 4** (`frontend/`), **DuckDB** en memoria sobre **Parquet** anual (`data/parquet/wells_2025.parquet`, `wells_2026.parquet`). Ver `PROJECT_MANIFEST.md`.
 
 ## Reglas de producto (obligatorias)
 - **Fichas técnicas en nueva pestaña:** siempre usar **`window.open(..., '_blank', 'noopener,noreferrer')`** para abrir la ficha de pozo desde el mapa (no navegar en la misma pestaña sustituyendo el mapa).
@@ -11,10 +11,10 @@
 - **Cabecera del mapa (`MapPage`):** mantener el bloque técnico alineado al título **“Mapa de pozos”**: **coordenadas dinámicas** (Lat/Lon) a la derecha en `items-baseline` con el `<h1>`. Donde aplique, **Provincia** y **Cuenca** deben permanecer visibles y jerárquicamente coherentes con esa cabecera o con la ficha de detalle (evitar duplicar ruido; la ficha lista provincia/cuenca en metadatos).
 - **Soberanía cartográfica:** cualquier cambio en capas del mapa debe **preservar la nomenclatura argentina del IGN** (mantener overlay de etiquetas IGN; no sustituir por proveedores que impongan toponimia extranjera en áreas de soberanía). Bases raster (Esri/Carto) son admisibles si las **etiquetas oficiales** siguen viniendo del IGN.
 
-## Manejo de Datos (Excel / CSV → Parquet)
-- Fuentes en `/Documentos/`; merge por **`sigla`** en `convert_to_parquet.py`.
-- **`geojson`** como string JSON Point → `coordinates` **[longitud, latitud]** → columnas `latitud`, `longitud`.
-- API: variable de entorno opcional **`WELLS_PARQUET`** para otra ruta de maestro.
+## Manejo de Datos (CSV → Parquet)
+- Fuentes en `Documentos/2025/` y `Documentos/2026/` (no versionar; ver `.gitignore`); ETL: `convert_to_parquet.py`; merge por **`sigla`**; producción unificada por columna **`anio`**.
+- Coordenadas: preferir **`listado-de-pozos-cargados-por-empresas-operadoras.csv`** (`coordenadax`/`coordenaday`); **`geojson`** en Cap. IV como respaldo.
+- API: **`WELLS_PARQUET`** opcional — archivo `.parquet` único (legacy) o **directorio** donde están `wells_{anio}.parquet`.
 
 ## UI / UX (React + mapa)
 - Centro inicial Argentina / Cuenca Neuquina; **MarkerCluster** para muchos pozos.

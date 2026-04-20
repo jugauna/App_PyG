@@ -70,6 +70,8 @@ export function SidebarFilters({
     filterOptions,
     filters,
     setFilters,
+    anio,
+    setAnio,
     loading,
     mapPointLimit,
     setMapPointLimit,
@@ -138,6 +140,22 @@ export function SidebarFilters({
             Elegí una o más opciones. La petición a la API se actualiza al
             cambiar la selección.
           </p>
+
+          <div className="space-y-1.5">
+            <label htmlFor="f-anio" className="text-xs font-medium text-slate-400">
+              Año de datos
+            </label>
+            <select
+              id="f-anio"
+              value={anio}
+              disabled={loading}
+              onChange={(e) => setAnio(Number.parseInt(e.target.value, 10))}
+              className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-sky-500/80 focus:outline-none focus:ring-2 focus:ring-sky-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value={2026}>2026</option>
+              <option value={2025}>2025</option>
+            </select>
+          </div>
 
           <MultiSelect
             id="f-empresa"

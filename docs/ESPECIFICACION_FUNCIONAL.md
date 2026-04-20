@@ -86,7 +86,7 @@ La app **no** lee Excel/CSV en runtime en el servidor de producción típico; la
 ## 7. Limitaciones y matices
 
 - Rendimiento con decenas de miles de puntos: usar límites de API y agregación según configuración.
-- Series temporales mensuales “reales” dependen de que el dataset y el frontend las incorporen; hasta entonces pueden existir visualizaciones sintéticas o simplificadas.
+- La ficha de pozo muestra **serie mensual real** según el Parquet (`mes`, producción mensual); el mapa usa **totales anuales agregados** por pozo para ranking y conteos.
 
 ---
 

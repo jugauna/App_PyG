@@ -16,5 +16,8 @@ frontend/dist/
 .env
 .env.*.local
 
+# Fuentes originales (CSV/Excel) — no subir al repositorio
+Documentos/
+
 # El maestro Parquet en data/parquet/ NO se ignora: es necesario para Docker / App Platform.
 # (No usar reglas tipo *.parquet ni /data/ aquí.)

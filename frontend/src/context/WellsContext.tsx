@@ -4,12 +4,12 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react'
 
 import {
+  DEFAULT_API_YEAR,
   fetchFilterOptions,
   fetchMapWells,
   fetchMapWellsCount,
@@ -30,6 +30,9 @@ type WellsContextValue = {
   }
   filters: WellFilters
   setFilters: (f: WellFilters) => void
+  /** Año del dataset Parquet (2025 / 2026); todas las consultas al API lo incluyen. */
+  anio: number
+  setAnio: (y: number) => void
   mapPointLimit: number
   setMapPointLimit: (n: number) => void
   eligibleCount: number
@@ -54,12 +57,11 @@ export function WellsProvider({ children }: { children: ReactNode }) {
     cuencas: [] as string[],
   })
   const [filters, setFilters] = useState<WellFilters>(emptyWellFilters)
+  const [anio, setAnio] = useState(DEFAULT_API_YEAR)
   const [mapPointLimit, setMapPointLimit] = useState(DEFAULT_MAP_WELLS_LIMIT)
   const [eligibleCount, setEligibleCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [bootstrapDone, setBootstrapDone] = useState(false)
-  const skipDuplicateFetchAfterBootstrap = useRef(true)
 
   useEffect(() => {
     let cancelled = false
@@ -68,8 +70,8 @@ export function WellsProvider({ children }: { children: ReactNode }) {
       setError(null)
       try {
         const [opts, { count }] = await Promise.all([
-          fetchFilterOptions(),
-          fetchMapWellsCount(emptyWellFilters),
+          fetchFilterOptions(anio),
+          fetchMapWellsCount(filters, anio),
         ])
         if (cancelled) return
         setFilterOptions({
@@ -78,43 +80,9 @@ export function WellsProvider({ children }: { children: ReactNode }) {
           cuencas: opts.cuencas,
         })
         setEligibleCount(count)
-        const initialLimit = Math.min(DEFAULT_MAP_WELLS_LIMIT, count)
-        setMapPointLimit(initialLimit)
-        const data = await fetchMapWells(emptyWellFilters, initialLimit)
-        if (cancelled) return
-        setWells(data)
-        setBootstrapDone(true)
-      } catch (e) {
-        if (!cancelled) {
-          setError(formatWellsFetchError(e))
-          setWells([])
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!bootstrapDone) return
-    if (skipDuplicateFetchAfterBootstrap.current) {
-      skipDuplicateFetchAfterBootstrap.current = false
-      return
-    }
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const { count } = await fetchMapWellsCount(filters)
-        if (cancelled) return
-        setEligibleCount(count)
-        const capped = Math.min(mapPointLimit, count)
-        setMapPointLimit((p) => (p > count ? count : p))
-        const data = await fetchMapWells(filters, capped)
+        const fetchLimit = Math.max(0, Math.min(mapPointLimit, count))
+        setMapPointLimit((p) => Math.min(p, count))
+        const data = await fetchMapWells(filters, fetchLimit, anio)
         if (cancelled) return
         setWells(data)
       } catch (e) {
@@ -129,15 +97,15 @@ export function WellsProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [filters, mapPointLimit, bootstrapDone])
+  }, [anio, filters, mapPointLimit])
 
   const refresh = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const [opts, { count }] = await Promise.all([
-        fetchFilterOptions(),
-        fetchMapWellsCount(filters),
+        fetchFilterOptions(anio),
+        fetchMapWellsCount(filters, anio),
       ])
       setFilterOptions({
         empresas: opts.empresas,
@@ -147,14 +115,14 @@ export function WellsProvider({ children }: { children: ReactNode }) {
       setEligibleCount(count)
       setMapPointLimit((p) => (p > count ? count : p))
       const lim = Math.min(mapPointLimit, count)
-      const data = await fetchMapWells(filters, lim)
+      const data = await fetchMapWells(filters, lim, anio)
       setWells(data)
     } catch (e) {
       setError(formatWellsFetchError(e))
     } finally {
       setLoading(false)
     }
-  }, [filters, mapPointLimit])
+  }, [filters, mapPointLimit, anio])
 
   const value = useMemo(
     () => ({
@@ -162,6 +130,8 @@ export function WellsProvider({ children }: { children: ReactNode }) {
       filterOptions,
       filters,
       setFilters,
+      anio,
+      setAnio,
       mapPointLimit,
       setMapPointLimit,
       eligibleCount,
@@ -173,6 +143,7 @@ export function WellsProvider({ children }: { children: ReactNode }) {
       wells,
       filterOptions,
       filters,
+      anio,
       mapPointLimit,
       eligibleCount,
       loading,
