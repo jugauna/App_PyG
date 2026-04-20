@@ -146,20 +146,10 @@ export function SidebarFilters({
             value={filters.empresa}
             onChange={(empresa) => patch({ empresa })}
           />
-          <MultiSelect
-            id="f-provincia"
-            label="Provincia"
-            options={filterOptions.provincias}
-            value={filters.provincia}
-            onChange={(provincia) => patch({ provincia })}
-          />
-          <MultiSelect
-            id="f-cuenca"
-            label="Cuenca"
-            options={filterOptions.cuencas}
-            value={filters.cuenca}
-            onChange={(cuenca) => patch({ cuenca })}
-          />
+          <p className="text-[11px] leading-snug text-amber-300/80">
+            Filtros de Provincia y Cuenca deshabilitados temporalmente por
+            limpieza de datos.
+          </p>
 
           <div className="space-y-2 rounded-lg border border-slate-700/80 bg-slate-950/40 p-3">
             <div className="flex items-center gap-2 text-slate-300">

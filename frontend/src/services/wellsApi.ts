@@ -58,12 +58,7 @@ function buildSearchParams(f: WellFilters, limit?: number): string {
   for (const v of f.empresa) {
     if (v) sp.append('empresa', v)
   }
-  for (const v of f.provincia) {
-    if (v) sp.append('provincia', v)
-  }
-  for (const v of f.cuenca) {
-    if (v) sp.append('cuenca', v)
-  }
+  // Triage temporal de calidad de datos: provincia/cuenca deshabilitados en UI y request.
   if (limit !== undefined) sp.set('limit', String(limit))
   return sp.toString()
 }

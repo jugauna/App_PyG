@@ -259,18 +259,9 @@ def well_filter_options() -> WellFilterOptions:
                     "SELECT DISTINCT empresa FROM wells WHERE empresa IS NOT NULL AND trim(CAST(empresa AS VARCHAR)) != '' ORDER BY 1"
                 ).fetchall()
             ]
-            prov = [
-                r[0]
-                for r in con.execute(
-                    "SELECT DISTINCT provincia FROM wells WHERE provincia IS NOT NULL AND trim(CAST(provincia AS VARCHAR)) != '' ORDER BY 1"
-                ).fetchall()
-            ]
-            cue = [
-                r[0]
-                for r in con.execute(
-                    "SELECT DISTINCT cuenca FROM wells WHERE cuenca IS NOT NULL AND trim(CAST(cuenca AS VARCHAR)) != '' ORDER BY 1"
-                ).fetchall()
-            ]
+            # Data Cleaning Phase: filtros de provincia/cuenca deshabilitados temporalmente.
+            prov: list[str] = []
+            cue: list[str] = []
         return WellFilterOptions(
             empresas=[str(_cell_json(e) or "") for e in emp],
             provincias=[str(_cell_json(p) or "") for p in prov],

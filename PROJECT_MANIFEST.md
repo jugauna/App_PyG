@@ -77,6 +77,7 @@ SELECT * FROM read_parquet('<ruta_absoluta_normalizada_posix>')
 - **Mapa — soberanía y nomenclatura:** debe mantenerse **capa de etiquetas del IGN Argentina** (`mapabase_hibrido` TMS) sobre las bases raster elegidas, para toponimia oficial (p. ej. Islas Malvinas). Las bases de calle pueden ser Esri World Street y/o Carto Voyager sin etiquetas; satélite: Esri World Imagery + mismo overlay IGN. Ver `frontend/src/map/basemapConfig.ts` y `WellsMap.tsx`.
 - **Cabecera mapa (`MapPage`):** título “Mapa de pozos” y **coordenadas bajo cursor** (Lat/Lon a 5 decimales) alineadas en `flex` `items-baseline`; al salir del mapa se conserva el último valor hasta desmontar la página.
 - **Ficha pozo (`WellDetailPage`):** dashboard con KPIs, gráfico Recharts, metadatos tabulares, mini mapa, export CSV.
+- **Triage temporal de filtros (Data Cleaning Phase):** filtros de **Provincia** y **Cuenca** deshabilitados en la UI y en requests de mapa para evitar sesgos por inconsistencias de limpieza; se mantiene solo **Empresa** hasta finalizar la normalización de datos.
 
 ---
 
