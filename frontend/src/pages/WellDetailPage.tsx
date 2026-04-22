@@ -266,7 +266,7 @@ export function WellDetailPage() {
         {/* Título y contexto */}
         <div className="space-y-2 border-b border-slate-800/80 pb-4">
           <div className="flex flex-wrap items-end gap-2 gap-y-2 sm:gap-3">
-            <h1 className="font-mono text-xl font-bold tracking-tight text-white lg:text-3xl">
+            <h1 className="font-mono text-2xl font-bold tracking-tight text-white">
               {yearRefreshInFlight ? sigla : (w?.sigla ?? sigla)}
               <span className="ml-1.5 inline-block text-base font-semibold tabular-nums text-sky-300 sm:ml-2 lg:text-lg">
                 ({anio})
@@ -396,6 +396,55 @@ export function WellDetailPage() {
           </div>
         </section>
 
+        {/* Metadatos técnicos compactos */}
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-lg ring-1 ring-slate-800/80 sm:p-5">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400 sm:text-sm">
+            Metadatos técnicos
+          </h2>
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+            <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Provincia</p>
+              <p className="truncate text-sm text-slate-200">
+                {yearRefreshInFlight ? '—' : (w?.provincia ?? '—')}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Cuenca</p>
+              <p className="truncate text-sm text-slate-200">
+                {yearRefreshInFlight ? '—' : (w?.cuenca ?? '—')}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Recurso</p>
+              <p className="truncate text-sm text-slate-200">
+                {yearRefreshInFlight ? '—' : (w?.tipo_de_recurso ?? '—')}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Clasificación</p>
+              <p className="truncate text-sm text-slate-200">
+                {yearRefreshInFlight ? '—' : recursoConvencionalLabel(w?.tipo_de_recurso)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Extracción</p>
+              <p className="truncate text-sm text-slate-200">
+                {yearRefreshInFlight
+                  ? '—'
+                  : w?.tipoextraccion?.trim()
+                    ? w.tipoextraccion
+                    : '—'}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Inicio perf.</p>
+              <p className="truncate font-mono text-sm text-slate-200">
+                {yearRefreshInFlight ? '—' : fmtDisplayDate(w?.fecha_inicio_perf)}
+              </p>
+            </div>
+          </div>
+        </section>
+
         {/* Gráfico principal */}
         <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-xl ring-1 ring-slate-800/80 sm:p-5">
           <h2 className="mb-0.5 text-sm font-semibold uppercase tracking-wide text-slate-400 sm:text-base">
@@ -405,7 +454,7 @@ export function WellDetailPage() {
             Doble eje: petróleo (barras) y gas (línea). Colores corporativos
             petróleo / gas.
           </p>
-          <div className="relative min-h-[300px] w-full sm:min-h-[400px]">
+          <div className="relative min-h-[280px] w-full sm:min-h-[400px]">
             {yearRefreshInFlight ? (
               <div
                 className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl bg-slate-950/85 px-4 py-8 text-center backdrop-blur-sm"
@@ -429,97 +478,22 @@ export function WellDetailPage() {
           </div>
         </section>
 
-        {/* Metadatos + mini mapa */}
-        <section className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-lg ring-1 ring-slate-800/80">
-            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">
-              Metadatos técnicos
-            </h2>
-            <div className="overflow-hidden rounded-lg border border-slate-800">
-              <table className="w-full text-left text-sm">
-                <tbody className="divide-y divide-slate-800">
-                  <tr className="bg-slate-900/50">
-                    <th className="w-2/5 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Cuenca
-                    </th>
-                    <td className="px-4 py-3 text-slate-200">
-                      {yearRefreshInFlight ? '—' : (w?.cuenca ?? '—')}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Provincia
-                    </th>
-                    <td className="px-4 py-3 text-slate-200">
-                      {yearRefreshInFlight ? '—' : (w?.provincia ?? '—')}
-                    </td>
-                  </tr>
-                  <tr className="bg-slate-900/50">
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Tipo de recurso
-                    </th>
-                    <td className="px-4 py-3 text-slate-200">
-                      {yearRefreshInFlight ? '—' : (w?.tipo_de_recurso ?? '—')}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Clasificación
-                    </th>
-                    <td className="px-4 py-3 text-slate-200">
-                      {yearRefreshInFlight
-                        ? '—'
-                        : recursoConvencionalLabel(w?.tipo_de_recurso)}
-                    </td>
-                  </tr>
-                  <tr className="bg-slate-900/50">
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Tipo de reservorio / extracción
-                    </th>
-                    <td className="px-4 py-3 text-slate-200">
-                      {yearRefreshInFlight
-                        ? '—'
-                        : w?.tipoextraccion?.trim()
-                          ? w.tipoextraccion
-                          : '—'}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Inicio producción / perforación
-                    </th>
-                    <td className="px-4 py-3 font-mono text-slate-200">
-                      {yearRefreshInFlight
-                        ? '—'
-                        : fmtDisplayDate(w?.fecha_inicio_perf)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+        {/* Mapa de contexto */}
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-lg ring-1 ring-slate-800/80">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Mapa de contexto
+          </h2>
+          {yearRefreshInFlight ? (
+            <div className="flex h-60 items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-900/60 text-sm text-slate-500">
+              —
             </div>
-            <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
-              La fecha proviene del campo{' '}
-              <span className="font-mono text-slate-500">fecha_inicio_perf</span>{' '}
-              del maestro (inicio de perforación en fuente capítulo IV).
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-lg ring-1 ring-slate-800/80">
-            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">
-              Mapa de contexto
-            </h2>
-            {yearRefreshInFlight ? (
-              <div className="flex h-60 items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-900/60 text-sm text-slate-500">
-                —
-              </div>
-            ) : lat != null && lon != null ? (
-              <WellMiniMap lat={lat} lon={lon} label={w?.sigla ?? sigla} />
-            ) : (
-              <div className="flex h-60 items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-900/60 text-sm text-slate-500">
-                Sin coordenadas para este pozo.
-              </div>
-            )}
-          </div>
+          ) : lat != null && lon != null ? (
+            <WellMiniMap lat={lat} lon={lon} label={w?.sigla ?? sigla} />
+          ) : (
+            <div className="flex h-60 items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-900/60 text-sm text-slate-500">
+              Sin coordenadas para este pozo.
+            </div>
+          )}
         </section>
       </div>
     </div>

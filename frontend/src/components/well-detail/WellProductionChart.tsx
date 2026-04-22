@@ -18,11 +18,11 @@ const AXIS_FONT = 12
 
 function useCompactChartHeight(): number {
   const [height, setHeight] = useState(() =>
-    typeof window !== 'undefined' && window.innerWidth < 640 ? 300 : 400,
+    typeof window !== 'undefined' && window.innerWidth < 640 ? 280 : 400,
   )
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 639px)')
-    const apply = () => setHeight(mq.matches ? 300 : 400)
+    const apply = () => setHeight(mq.matches ? 280 : 400)
     apply()
     mq.addEventListener('change', apply)
     return () => mq.removeEventListener('change', apply)
